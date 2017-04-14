@@ -47,10 +47,7 @@ NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
 
 # Constants describing the training process.
-MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
-NUM_EPOCHS_PER_DECAY = 20.0  # Epochs after which learning rate decays.
-LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.1  # Initial learning rate.
+INITIAL_LEARNING_RATE = 0.0001  # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
@@ -135,7 +132,7 @@ def loss(logits, labels):
     """
     # Calculate the average cross entropy loss across the batch.
     labels = tf.cast(labels, tf.int32)
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=labels, logits=logits, name='cross_entropy_per_example')
     cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
     tf.add_to_collection('losses', cross_entropy_mean)
@@ -145,7 +142,7 @@ def loss(logits, labels):
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 
-def inference(images):
+def inference(images, keep_prob=1.0):
     """Build the MNIST model.
 
     Args:
@@ -211,16 +208,14 @@ def inference(images):
                             name=scope.name)
         _activation_summary(local3)
 
-    # linear layer(WX + b),
-    # We don't apply softmax here because
-    # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
-    # and performs the softmax internally for efficiency.
-    with tf.variable_scope('softmax_linear') as scope:
-        weights = _variable_with_weight_decay('weights', [1024, NUM_CLASSES],
-                                              stddev=1 / 192.0, wd=0.0)
-        biases = _variable_on_cpu('biases', [NUM_CLASSES],
-                                  tf.constant_initializer(0.0))
-        softmax_linear = tf.add(tf.matmul(local3, weights), biases,
+    # local4 with dropout
+    with tf.variable_scope('local4') as scope:
+        # keep_prob = tf.placeholder(tf.float32, name="keep_prob")
+        local4 = tf.nn.dropout(local3, keep_prob, name=scope.name)
+        weights = _variable_with_weight_decay('weights', shape=[1024, 10],
+                                              stddev=0.04, wd=0.004)
+        biases = _variable_on_cpu('biases', [10], tf.constant_initializer(0.1))
+        softmax_linear = tf.add(tf.matmul(local4, weights), biases,
                                 name=scope.name)
         _activation_summary(softmax_linear)
 

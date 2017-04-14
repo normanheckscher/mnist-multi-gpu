@@ -67,7 +67,7 @@ tf.app.flags.DEFINE_integer('num_gpus', 2,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-def tower_loss(scope):
+def tower_loss(scope, mnist):
     """Calculate the total loss on a single tower running the MNIST model.
   
     Args:
@@ -77,13 +77,12 @@ def tower_loss(scope):
        Tensor of shape [] containing the total loss for a batch of data
     """
     # Get images and labels for MSNIT.
-    mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=True)
-    batch = mnist.train.next_batch(50)
+    batch = mnist.train.next_batch(5000)
     images = batch[0]
     labels = batch[1]
 
     # Build inference Graph.
-    logits = model.inference(images)
+    logits = model.inference(images, keep_prob=0.5)
 
     # Build the portion of the Graph calculating the losses. Note that we will
     # assemble the total_loss using a custom function below.
@@ -148,26 +147,15 @@ def average_gradients(tower_grads):
 def train():
     """Train MNIST for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
+        mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=False)
         # Create a variable to count the number of train() calls. This equals
         # the number of batches processed * FLAGS.num_gpus.
         global_step = tf.get_variable(
             'global_step', [],
             initializer=tf.constant_initializer(0), trainable=False)
 
-        # Calculate the learning rate schedule.
-        num_batches_per_epoch = (model.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
-                                 FLAGS.batch_size)
-        decay_steps = int(num_batches_per_epoch * model.NUM_EPOCHS_PER_DECAY)
-
-        # Decay the learning rate exponentially based on the number of steps.
-        lr = tf.train.exponential_decay(model.INITIAL_LEARNING_RATE,
-                                        global_step,
-                                        decay_steps,
-                                        model.LEARNING_RATE_DECAY_FACTOR,
-                                        staircase=True)
-
-        # Create an optimizer that performs gradient descent.
-        opt = tf.train.GradientDescentOptimizer(lr)
+        # Use AdamOptimizer.
+        opt = tf.train.AdamOptimizer(model.INITIAL_LEARNING_RATE)
 
         # Calculate the gradients for each model tower.
         tower_grads = []
@@ -178,7 +166,7 @@ def train():
                         # Calculate the loss for one tower of the MNIST model.
                         # This function constructs the entire MNIST model but
                         # shares the variables across all towers.
-                        loss = tower_loss(scope)
+                        loss = tower_loss(scope, mnist)
 
                         # Reuse variables for the next tower.
                         tf.get_variable_scope().reuse_variables()
@@ -198,9 +186,6 @@ def train():
         # synchronization point across all towers.
         grads = average_gradients(tower_grads)
 
-        # Add a summary to track the learning rate.
-        summaries.append(tf.summary.scalar('learning_rate', lr))
-
         # Add histograms for gradients.
         for grad, var in grads:
             if grad is not None:
@@ -208,20 +193,11 @@ def train():
                     tf.summary.histogram(var.op.name + '/gradients', grad))
 
         # Apply the gradients to adjust the shared variables.
-        apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+        train_op = opt.apply_gradients(grads, global_step=global_step)
 
         # Add histograms for trainable variables.
         for var in tf.trainable_variables():
             summaries.append(tf.summary.histogram(var.op.name, var))
-
-        # Track the moving averages of all trainable variables.
-        variable_averages = tf.train.ExponentialMovingAverage(
-            model.MOVING_AVERAGE_DECAY, global_step)
-        variables_averages_op = variable_averages.apply(
-            tf.trainable_variables())
-
-        # Group all updates to into a single train op.
-        train_op = tf.group(apply_gradient_op, variables_averages_op)
 
         # Create a saver.
         saver = tf.train.Saver(tf.global_variables())
@@ -258,7 +234,7 @@ def train():
                 sec_per_batch = duration / FLAGS.num_gpus
 
                 format_str = (
-                    '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
+                    '%s: step %d, loss = %.4f (%.1f examples/sec; %.3f '
                     'sec/batch)')
                 print(format_str % (datetime.now(), step, loss_value,
                                     examples_per_sec, sec_per_batch))
@@ -268,7 +244,7 @@ def train():
                 summary_writer.add_summary(summary_str, step)
 
             # Save the model checkpoint periodically.
-            if step % 1000 == 0 or (step + 1) == FLAGS.max_steps:
+            if step % 100 == 0 or (step + 1) == FLAGS.max_steps:
                 checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
 
