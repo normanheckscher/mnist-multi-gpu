@@ -15,7 +15,7 @@
 """A binary to train MNIST using multiple GPU's with synchronous updates.
 
 Accuracy:
-cifar10_multi_gpu_train.py achieves ~xx% accuracy after 20K steps (xxx
+mnist_multi_gpu_train.py achieves ~xx% accuracy after 20K steps (xxx
 epochs of data) as judged by mnist_multi_gpu_eval.py.
 
 Speed: With batch_size 50.
