@@ -46,12 +46,11 @@ import tensorflow as tf
 
 import model
 
-from tensorflow.examples.tutorials.mnist import input_data
 
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_integer('batch_size', 50,
+tf.app.flags.DEFINE_integer('batch_size', 1000,
                             """Number of images to process in a batch.""")
 tf.app.flags.DEFINE_string('data_dir', '/home/norman/MNIST_data',
                            """Path to the MNIST data directory.""")
@@ -66,8 +65,10 @@ tf.app.flags.DEFINE_integer('num_gpus', 2,
                             """How many GPUs to use.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
+tf.app.flags.DEFINE_boolean('tb_logging', False,
+                            """Whether to log to Tensorboard.""")
 
-def tower_loss(scope, mnist):
+def tower_loss(scope):
     """Calculate the total loss on a single tower running the MNIST model.
   
     Args:
@@ -77,9 +78,7 @@ def tower_loss(scope, mnist):
        Tensor of shape [] containing the total loss for a batch of data
     """
     # Get images and labels for MSNIT.
-    batch = mnist.train.next_batch(5000)
-    images = batch[0]
-    labels = batch[1]
+    images, labels = model.inputs(FLAGS.batch_size)
 
     # Build inference Graph.
     logits = model.inference(images, keep_prob=0.5)
@@ -96,12 +95,13 @@ def tower_loss(scope, mnist):
 
     # Attach a scalar summary to all individual losses and the total loss; do
     # the same for the averaged version of the losses.
-    for l in losses + [total_loss]:
-        # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU
-        # training session. This helps the clarity of presentation on
-        # tensorboard.
-        loss_name = re.sub('%s_[0-9]*/' % model.TOWER_NAME, '', l.op.name)
-        tf.summary.scalar(loss_name, l)
+    if (FLAGS.tb_logging):
+        for l in losses + [total_loss]:
+            # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU
+            # training session. This helps the clarity of presentation on
+            # tensorboard.
+            loss_name = re.sub('%s_[0-9]*/' % model.TOWER_NAME, '', l.op.name)
+            tf.summary.scalar(loss_name, l)
 
     return total_loss
 
@@ -143,11 +143,10 @@ def average_gradients(tower_grads):
         average_grads.append(grad_and_var)
     return average_grads
 
-
 def train():
     """Train MNIST for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=False)
+
         # Create a variable to count the number of train() calls. This equals
         # the number of batches processed * FLAGS.num_gpus.
         global_step = tf.get_variable(
@@ -162,11 +161,12 @@ def train():
         with tf.variable_scope(tf.get_variable_scope()):
             for i in xrange(FLAGS.num_gpus):
                 with tf.device('/gpu:%d' % i):
-                    with tf.name_scope('%s_%d' % (model.TOWER_NAME, i)) as scope:
+                    with tf.name_scope(
+                                    '%s_%d' % (model.TOWER_NAME, i)) as scope:
                         # Calculate the loss for one tower of the MNIST model.
                         # This function constructs the entire MNIST model but
                         # shares the variables across all towers.
-                        loss = tower_loss(scope, mnist)
+                        loss = tower_loss(scope)
 
                         # Reuse variables for the next tower.
                         tf.get_variable_scope().reuse_variables()
@@ -187,17 +187,19 @@ def train():
         grads = average_gradients(tower_grads)
 
         # Add histograms for gradients.
-        for grad, var in grads:
-            if grad is not None:
-                summaries.append(
-                    tf.summary.histogram(var.op.name + '/gradients', grad))
+        if (FLAGS.tb_logging):
+            for grad, var in grads:
+                if grad is not None:
+                    summaries.append(
+                        tf.summary.histogram(var.op.name + '/gradients', grad))
 
         # Apply the gradients to adjust the shared variables.
         train_op = opt.apply_gradients(grads, global_step=global_step)
 
         # Add histograms for trainable variables.
-        for var in tf.trainable_variables():
-            summaries.append(tf.summary.histogram(var.op.name, var))
+        if (FLAGS.tb_logging):
+            for var in tf.trainable_variables():
+                summaries.append(tf.summary.histogram(var.op.name, var))
 
         # Create a saver.
         saver = tf.train.Saver(tf.global_variables())
@@ -228,7 +230,7 @@ def train():
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
-            if step % 10 == 0:
+            if step % 50 == 0:
                 num_examples_per_step = FLAGS.batch_size * FLAGS.num_gpus
                 examples_per_sec = num_examples_per_step / duration
                 sec_per_batch = duration / FLAGS.num_gpus
@@ -238,13 +240,13 @@ def train():
                     'sec/batch)')
                 print(format_str % (datetime.now(), step, loss_value,
                                     examples_per_sec, sec_per_batch))
-
-            if step % 5 == 0:
-                summary_str = sess.run(summary_op)
-                summary_writer.add_summary(summary_str, step)
+            if (FLAGS.tb_logging):
+                if step % 5 == 0:
+                    summary_str = sess.run(summary_op)
+                    summary_writer.add_summary(summary_str, step)
 
             # Save the model checkpoint periodically.
-            if step % 100 == 0 or (step + 1) == FLAGS.max_steps:
+            if step % 1000 == 0 or (step + 1) == FLAGS.max_steps:
                 checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
 
