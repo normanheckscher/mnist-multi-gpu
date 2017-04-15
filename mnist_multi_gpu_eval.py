@@ -59,7 +59,7 @@ tf.app.flags.DEFINE_boolean('use_fp16', False,
                             """Train the model using fp16.""")
 
 
-def eval_once(saver, summary_writer, top_k_op):
+def eval_once(saver, top_k_op):
     """Run Eval once.
   
     Args:
@@ -84,7 +84,7 @@ def eval_once(saver, summary_writer, top_k_op):
         predictions = np.sum(sess.run([top_k_op]))
 
         # Compute precision @ 1.
-        print('%s: precision @ 1 = %.3f' % (datetime.now(), predictions))
+        print('%s: precision = %.3f' % (datetime.now(), predictions))
 
 def evaluate():
     """Eval MNIST for a number of steps."""
@@ -92,7 +92,7 @@ def evaluate():
         # Get images and labels for MNIST.
         mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=False)
         images = mnist.test.images
-        labels = tf.cast(mnist.test.labels, dtype=tf.int32)
+        labels = mnist.test.labels
 
         # Build a Graph that computes the logits predictions from the
         # inference model.
@@ -104,12 +104,7 @@ def evaluate():
         # Create saver to restore the learned variables for eval.
         saver = tf.train.Saver()
 
-        # Build the summary operation based on the TF collection of Summaries.
-        summary_op = tf.summary.merge_all()
-
-        summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
-
-        eval_once(saver, summary_writer, top_k_op)
+        eval_once(saver, top_k_op)
 
 def main(argv=None):  # pylint: disable=unused-argument
     evaluate()
