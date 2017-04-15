@@ -3,6 +3,8 @@ A ConvNet for MNIST digit classification.
 
 Multi GPU example with TensorFlow utilising local tower architecture for each GPU.
 
+2 different examples. Utilise batching and direct feed.
+
 ## Training a Model Using Multiple GPU Cards
 
 Modern workstations may contain multiple GPUs for scientific computation.
