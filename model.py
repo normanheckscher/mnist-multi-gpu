@@ -37,8 +37,11 @@ from __future__ import print_function
 import re
 
 import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
 
 FLAGS = tf.app.flags.FLAGS
+# tf.app.flags.DEFINE_string('data_dir', '/home/norman/MNIST_data',
+#                            """Path to the MNIST data directory.""")
 
 # Global constants describing the MNIST data set.
 IMAGE_SIZE = 28
@@ -54,6 +57,19 @@ INITIAL_LEARNING_RATE = 0.0001  # Initial learning rate.
 # names of the summaries when visualizing a model.
 TOWER_NAME = 'tower'
 
+mnist = input_data.read_data_sets('/home/norman/MNIST_data', one_hot=False)
+
+def inputs(batch_size=50):
+  """Construct input for MNIST training using the TensorFlow framework.
+
+  Returns:
+    images: mnist images
+    labels: mnist labels
+
+  """
+  images, labels = mnist.train.next_batch(batch_size)
+
+  return images, labels
 
 def _variable_with_weight_decay(name, shape, stddev, wd):
     """Helper to create an initialized Variable with weight decay.
@@ -179,13 +195,17 @@ def inference(images, keep_prob=1.0):
     pool1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
                            padding='SAME', name='pool1')
 
+    # norm1
+    norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
+                      name='norm1')
+
     # conv2
     with tf.variable_scope('conv2') as scope:
         kernel = _variable_with_weight_decay('weights',
                                              shape=[5, 5, 32, 64],
                                              stddev=5e-2,
                                              wd=0.0)
-        conv = tf.nn.conv2d(pool1, kernel, strides=[1, 1, 1, 1], padding='SAME')
+        conv = tf.nn.conv2d(norm1, kernel, strides=[1, 1, 1, 1], padding='SAME')
         biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
         pre_activation = tf.nn.bias_add(conv, biases)
         conv2 = tf.nn.relu(pre_activation, name=scope.name)
@@ -195,10 +215,14 @@ def inference(images, keep_prob=1.0):
     pool2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
                            padding='SAME', name='pool2')
 
+    # norm2
+    norm2 = tf.nn.lrn(pool2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
+                      name='norm1')
+
     # local3
     with tf.variable_scope('local3') as scope:
         # Move everything into depth so we can perform a single matrix multiply.
-        reshape = tf.reshape(pool2, [-1, 7 * 7 * 64])
+        reshape = tf.reshape(norm2, [-1, 7 * 7 * 64])
         dim = reshape.get_shape()[1].value
         weights = _variable_with_weight_decay('weights', shape=[dim, 1024],
                                               stddev=0.04, wd=0.004)
