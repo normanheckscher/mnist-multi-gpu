@@ -5,6 +5,8 @@ Multi GPU example with TensorFlow utilising local tower architecture for each GP
 
 2 different examples. Utilise batching and direct feed.
 
+Batching achieves 0.8% error after approximately seven epochs.
+
 ## Training a Model Using Multiple GPU Cards
 
 Modern workstations may contain multiple GPUs for scientific computation.
@@ -72,3 +74,6 @@ Here is a graph generated from TensorBoard describing the inference operation:
 <div style="width:15%; margin:auto; margin-bottom:10px; margin-top:20px;">
   <img style="width:100%" src="./images/mnist_graph.png">
 </div>
+
+# Contribution
+Your comments (issues) and PRs are always welcome.
