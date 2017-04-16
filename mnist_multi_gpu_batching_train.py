@@ -35,20 +35,28 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os.path
 import re
+import time
+import numpy as np
+from datetime import datetime
 
 from tensorflow.examples.tutorials.mnist import input_data
 
 import tensorflow as tf
 
+# Constants used for dealing with the files, matches convert_to_records.
+TRAIN_FILE = 'train.tfrecords'
+VALIDATION_FILE = 'validation.tfrecords'
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
 # names of the summaries when visualizing a model.
 TOWER_NAME = 'tower'
+IMAGE_PIXELS = 784
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_integer('batch_size', 50,
+tf.app.flags.DEFINE_integer('batch_size', 100,
                             """Number of images to process in a batch.""")
 tf.app.flags.DEFINE_string('data_dir', '/home/norman/MNIST_data',
                            """Path to the MNIST data directory.""")
@@ -59,12 +67,86 @@ tf.app.flags.DEFINE_string('train_dir', '/home/norman/MNIST_train',
                            """and checkpoint.""")
 tf.app.flags.DEFINE_integer('max_steps', 5000,
                             """Number of batches to run.""")
-tf.app.flags.DEFINE_integer('num_gpus', 1,
+tf.app.flags.DEFINE_integer('num_gpus', 2,
                             """How many GPUs to use.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 tf.app.flags.DEFINE_boolean('tb_logging', False,
                             """Whether to log to Tensorboard.""")
+tf.app.flags.DEFINE_integer('num_epochs', 500,
+                            """Number of epochs to run trainer.""")
+
+
+def read_and_decode(filename_queue):
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+    features = tf.parse_single_example(
+        serialized_example,
+        # Defaults are not specified since both keys are required.
+        features={
+            'image_raw': tf.FixedLenFeature([], tf.string),
+            'label': tf.FixedLenFeature([], tf.int64),
+        })
+
+    # Convert from a scalar string tensor (whose single string has
+    # length mnist.IMAGE_PIXELS) to a uint8 tensor with shape
+    # [mnist.IMAGE_PIXELS].
+    image = tf.decode_raw(features['image_raw'], tf.uint8)
+    image.set_shape([IMAGE_PIXELS])
+
+    # OPTIONAL: Could reshape into a 28x28 image and apply distortions
+    # here.  Since we are not applying any distortions in this
+    # example, and the next step expects the image to be flattened
+    # into a vector, we don't bother.
+
+    # Convert from [0, 255] -> [-0.5, 0.5] floats.
+    image = tf.cast(image, tf.float32) * (1. / 255) - 0.5
+
+    # Convert label from a scalar uint8 tensor to an int32 scalar.
+    label = tf.cast(features['label'], tf.int32)
+
+    return image, label
+
+
+def inputs(train, batch_size, num_epochs):
+    """Reads input data num_epochs times.
+    Args:
+      train: Selects between the training (True) and validation (False) data.
+      batch_size: Number of examples per returned batch.
+      num_epochs: Number of times to read the input data, or 0/None to
+         train forever.
+    Returns:
+      A tuple (images, labels), where:
+      * images is a float tensor with shape [batch_size, mnist.IMAGE_PIXELS]
+        in the range [-0.5, 0.5].
+      * labels is an int32 tensor with shape [batch_size] with the true label,
+        a number in the range [0, mnist.NUM_CLASSES).
+      Note that an tf.train.QueueRunner is added to the graph, which
+      must be run using e.g. tf.train.start_queue_runners().
+    """
+    if not num_epochs: num_epochs = None
+    filename = os.path.join(FLAGS.data_dir,
+                            TRAIN_FILE if train else VALIDATION_FILE)
+
+    with tf.name_scope('input'):
+        filename_queue = tf.train.string_input_producer(
+            [filename], num_epochs=num_epochs)
+
+        # Even when reading in multiple threads, share the filename
+        # queue.
+        image, label = read_and_decode(filename_queue)
+
+        # Shuffle the examples and collect them into batch_size batches.
+        # (Internally uses a RandomShuffleQueue.)
+        # We run this in two threads to avoid being a bottleneck.
+        images, sparse_labels = tf.train.shuffle_batch(
+            [image, label], batch_size=batch_size, num_threads=2,
+            capacity=1000 + 3 * batch_size,
+            # Ensures a minimum amount of shuffling of examples.
+            min_after_dequeue=1000)
+
+        return images, sparse_labels
+
 
 def inference(images):
     """Build the MNIST model.
@@ -140,17 +222,29 @@ def inference(images):
                             name=scope.name)
         _activation_summary(local3)
 
-    # local4 with dropout
+    # local4
     with tf.variable_scope('local4') as scope:
-        keep_prob = tf.placeholder(tf.float32, name="keep_prob")
-        local4 = tf.nn.dropout(local3, keep_prob, name=scope.name)
         weights = _variable_with_weight_decay('weights', shape=[1024, 10],
                                               stddev=0.04, wd=0.004)
         biases = _variable_on_cpu('biases', [10], tf.constant_initializer(0.1))
+        local4 = tf.nn.relu(tf.matmul(local3, weights) + biases,
+                            name=scope.name)
+        _activation_summary(local4)
+
+    # linear layer(WX + b),
+    # We don't apply softmax here because
+    # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
+    # and performs the softmax internally for efficiency.
+    with tf.variable_scope('softmax_linear') as scope:
+        weights = _variable_with_weight_decay('weights', [10, 10],
+                                              stddev=1 / 192.0, wd=0.0)
+        biases = _variable_on_cpu('biases', [10],
+                                  tf.constant_initializer(0.0))
         softmax_linear = tf.add(tf.matmul(local4, weights), biases,
                                 name=scope.name)
         _activation_summary(softmax_linear)
-    return softmax_linear, keep_prob
+
+    return softmax_linear
 
 
 def _variable_with_weight_decay(name, shape, stddev, wd):
@@ -216,6 +310,30 @@ def _activation_summary(x):
                       tf.nn.zero_fraction(x))
 
 
+def loss(logits, labels):
+    """Add L2Loss to all the trainable variables.
+  
+    Add summary for "Loss" and "Loss/avg".
+    Args:
+      logits: Logits from inference().
+      labels: Labels from distorted_inputs or inputs(). 1-D tensor
+              of shape [batch_size]
+  
+    Returns:
+      Loss tensor of type float.
+    """
+    # Calculate the average cross entropy loss across the batch.
+    labels = tf.cast(labels, tf.int64)
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        labels=labels, logits=logits, name='cross_entropy_per_example')
+    cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+    tf.add_to_collection('losses', cross_entropy_mean)
+
+    # The total loss is defined as the cross entropy loss plus all of the weight
+    # decay terms (L2 loss).
+    return tf.add_n(tf.get_collection('losses'), name='total_loss')
+
+
 def tower_loss(scope):
     """Calculate the total loss on a single tower running the MNIST model.
 
@@ -225,15 +343,15 @@ def tower_loss(scope):
     Returns:
        Tensor of shape [] containing the total loss for a batch of data
     """
-    # Get images and labels for MSNIT.
-    images, labels = model.inputs(FLAGS.batch_size)
-
+    # Input images and labels.
+    images, labels = inputs(train=True, batch_size=FLAGS.batch_size,
+                            num_epochs=FLAGS.num_epochs)
     # Build inference Graph.
-    logits = model.inference(images, keep_prob=0.5)
+    logits = inference(images)
 
     # Build the portion of the Graph calculating the losses. Note that we will
     # assemble the total_loss using a custom function below.
-    _ = model.loss(logits, labels)
+    _ = loss(logits, labels)
 
     # Assemble all of the losses for the current tower only.
     losses = tf.get_collection('losses', scope)
@@ -248,7 +366,7 @@ def tower_loss(scope):
             # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU
             # training session. This helps the clarity of presentation on
             # tensorboard.
-            loss_name = re.sub('%s_[0-9]*/' % model.TOWER_NAME, '', l.op.name)
+            loss_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', l.op.name)
             tf.summary.scalar(loss_name, l)
 
     return total_loss
@@ -291,22 +409,16 @@ def average_gradients(tower_grads):
         average_grads.append(grad_and_var)
     return average_grads
 
+
 def train():
-    # Import data
-    mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=True)
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        # Create the model
-        x = tf.placeholder(tf.float32, [None, 784])
+        # Create a variable to count the number of train() calls. This equals the
+        # number of batches processed * FLAGS.num_gpus.
+        global_step = tf.get_variable(
+            'global_step', [],
+            initializer=tf.constant_initializer(0), trainable=False)
 
-        # Define loss and optimizer
-        y_ = tf.placeholder(tf.float32, [None, 10])
-
-        # Build the graph for the deep net
-        y_conv, keep_prob = inference(x)
-
-        cross_entropy = tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
-        train_step = tf.train.AdamOptimizer(1e-4)
+        opt = tf.train.AdamOptimizer(1e-4)
 
         # Calculate the gradients for each model tower.
         tower_grads = []
@@ -315,24 +427,20 @@ def train():
                 with tf.device('/gpu:%d' % i):
                     with tf.name_scope(
                                     '%s_%d' % (TOWER_NAME, i)) as scope:
+                        # Calculate the loss for one tower of the CIFAR model. This function
+                        # constructs the entire CIFAR model but shares the variables across
+                        # all towers.
+                        loss = tower_loss(scope)
+
                         # Reuse variables for the next tower.
                         tf.get_variable_scope().reuse_variables()
-
-                        # Build the graph for the deep net
-                        y_conv, keep_prob = inference(x)
-
-                        cross_entropy = tf.reduce_mean(
-                            tf.nn.softmax_cross_entropy_with_logits(labels=y_,
-                                                                    logits=y_conv))
-                        train_step = tf.train.AdamOptimizer(1e-4)
 
                         # Retain the summaries from the final tower.
                         summaries = tf.get_collection(tf.GraphKeys.SUMMARIES,
                                                       scope)
 
-                        # Calculate the gradients for the batch of data on this
-                        # MNIST tower.
-                        grads = train_step.compute_gradients(cross_entropy)
+                        # Calculate the gradients for the batch of data on this CIFAR tower.
+                        grads = opt.compute_gradients(loss)
 
                         # Keep track of the gradients across all towers.
                         tower_grads.append(grads)
@@ -348,10 +456,12 @@ def train():
                     summaries.append(
                         tf.summary.histogram(var.op.name + '/gradients', grad))
 
-        train_op = train_step.apply_gradients(grads)
+        train_op = opt.apply_gradients(grads, global_step=global_step)
 
-        correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+        # Add histograms for trainable variables.
+        if (FLAGS.tb_logging):
+            for var in tf.trainable_variables():
+                summaries.append(tf.summary.histogram(var.op.name, var))
 
         # Create a saver.
         saver = tf.train.Saver(tf.global_variables())
@@ -360,7 +470,11 @@ def train():
         summary_op = tf.summary.merge(summaries)
 
         # Build an initialization operation to run below.
-        init = tf.global_variables_initializer()
+        # init = tf.global_variables_initializer()
+
+        # The op for initializing the variables.
+        init_op = tf.group(tf.global_variables_initializer(),
+                           tf.local_variables_initializer())
 
         # Start running operations on the Graph. allow_soft_placement must be
         # set to True to build towers on GPU, as some of the ops do not have GPU
@@ -368,22 +482,69 @@ def train():
         sess = tf.Session(config=tf.ConfigProto(
             allow_soft_placement=True,
             log_device_placement=FLAGS.log_device_placement))
-        sess.run(init)
+        sess.run(init_op)
 
-        for i in range(FLAGS.max_steps):
-            batch = mnist.train.next_batch(50)
-            if i % 100 == 0:
-                train_accuracy = accuracy.eval(session=sess,feed_dict={
-                    x: batch[0], y_: batch[1], keep_prob: 1.0})
-                print('step %d, training accuracy %g' % (i, train_accuracy))
-                print('test accuracy %g' % accuracy.eval(session=sess,feed_dict={
-                    x: mnist.test.images, y_: mnist.test.labels,
-                    keep_prob: 1.0}))
-            train_op.run(session=sess,
-                feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
+        # Start input enqueue threads.
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-        print('test accuracy %g' % accuracy.eval(session=sess,feed_dict={
-            x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}))
+        summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
+
+        try:
+            step = 0
+            while not coord.should_stop():
+                start_time = time.time()
+
+                # Run one step of the model.  The return values are
+                # the activations from the `train_op` (which is
+                # discarded) and the `loss` op.  To inspect the values
+                # of your ops or variables, you may include them in
+                # the list passed to sess.run() and the value tensors
+                # will be returned in the tuple from the call.
+                _, loss_value = sess.run([train_op, loss])
+
+                duration = time.time() - start_time
+
+                assert not np.isnan(
+                    loss_value), 'Model diverged with loss = NaN'
+
+                # Print an overview fairly often.
+                if step % 100 == 0:
+                    print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value,
+                                                               duration))
+
+                if step % 10 == 0:
+                    num_examples_per_step = FLAGS.batch_size * FLAGS.num_gpus
+                    examples_per_sec = num_examples_per_step / duration
+                    sec_per_batch = duration / FLAGS.num_gpus
+
+                    format_str = (
+                        '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
+                        'sec/batch)')
+                    print(format_str % (datetime.now(), step, loss_value,
+                                        examples_per_sec, sec_per_batch))
+
+                if step % 100 == 0:
+                    summary_str = sess.run(summary_op)
+                    summary_writer.add_summary(summary_str, step)
+
+                # Save the model checkpoint periodically.
+                if step % 1000 == 0 or (step + 1) == FLAGS.max_steps:
+                    checkpoint_path = os.path.join(FLAGS.train_dir,
+                                                   'model.ckpt')
+                    saver.save(sess, checkpoint_path, global_step=step)
+
+                step += 1
+        except tf.errors.OutOfRangeError:
+            print('Done training for %d epochs, %d steps.' % (
+                FLAGS.num_epochs, step))
+        finally:
+            # When done, ask the threads to stop.
+            coord.request_stop()
+
+        # Wait for threads to finish.
+        coord.join(threads)
+        sess.close()
 
 
 def main(argv=None):  # pylint: disable=unused-argument
