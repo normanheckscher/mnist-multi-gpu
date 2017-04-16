@@ -83,7 +83,7 @@ def eval_once(saver, top_k_op):
 
         predictions = np.sum(sess.run([top_k_op]))
 
-        # Compute precision @ 1.
+        # Compute precision.
         print('%s: precision = %.3f' % (datetime.now(), predictions))
 
 def evaluate():
