@@ -15,19 +15,37 @@
 """A binary to train MNIST using multiple GPU's with synchronous updates.
 
 Accuracy:
-mnist_multi_gpu_batching_train.py achieves ~xx% accuracy after 20K steps (xxx
-epochs of data).
+Should achieve ~99.2% accuracy after 20K steps, unfortunately it's not at
+the moment.
 
 Speed: With batch_size 50.
 
-System        | Step Time (sec/batch)  |     Accuracy
---------------------------------------------------------------------
-1 GTX 1080    | 0.08-0.10              | ~xx% at 20K steps  (x hours)
-2 GTX 1080    | 0.08-0.10              | ~xx% at 20K steps  (x hours)
+System        | Step Time (sec/batch)  | Accuracy
+-------------------------------------------------------------------------
+1 GTX 1080    | 0.018-0.022            | ~xx.xx% at 20K steps  (x hours)
+2 GTX 1080    | 0.012-0.015            | ~xx.xx% at 20K steps  (x hours)
+
+# One GPU
+# Done training for 2 epochs, 2200 steps.
+# Total Duration (50.511 sec)
+# 2017-04-16 14:41:39.758205: precision = 8756.000
+
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (451.174 sec)
+# 2017-04-16 15:06:46.001862: precision = 9572.000
+
+# Two GPU
+# Done training for 1 epochs, 1100 steps.
+# Total Duration (36.525 sec)
+# 2017-04-16 14:44:44.520041: precision = 8385.000
+
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (588.606 sec)
+# 2017-04-16 14:58:13.208302: precision = 9521.000
 
 Usage:
-Please see the tutorial and website for how to download the MNIST
-data set, compile the program and train the model.
+Please see the TensorFlow website for how to download the MNIST
+data set, compile and train models.
 
 """
 
@@ -56,26 +74,21 @@ IMAGE_PIXELS = 784
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_integer('batch_size', 100,
+tf.app.flags.DEFINE_integer('batch_size', 50,
                             """Number of images to process in a batch.""")
 tf.app.flags.DEFINE_string('data_dir', '/home/norman/MNIST_data',
                            """Path to the MNIST data directory.""")
-tf.app.flags.DEFINE_boolean('use_fp16', False,
-                            """Train the model using fp16.""")
 tf.app.flags.DEFINE_string('train_dir', '/home/norman/MNIST_train',
                            """Directory where to write event logs """
                            """and checkpoint.""")
-tf.app.flags.DEFINE_integer('max_steps', 5000,
-                            """Number of batches to run.""")
 tf.app.flags.DEFINE_integer('num_gpus', 2,
                             """How many GPUs to use.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 tf.app.flags.DEFINE_boolean('tb_logging', False,
                             """Whether to log to Tensorboard.""")
-tf.app.flags.DEFINE_integer('num_epochs', 500,
+tf.app.flags.DEFINE_integer('num_epochs', 2,
                             """Number of epochs to run trainer.""")
-
 
 def read_and_decode(filename_queue):
     reader = tf.TFRecordReader()
@@ -106,7 +119,6 @@ def read_and_decode(filename_queue):
     label = tf.cast(features['label'], tf.int32)
 
     return image, label
-
 
 def inputs(train, batch_size, num_epochs):
     """Reads input data num_epochs times.
@@ -146,7 +158,6 @@ def inputs(train, batch_size, num_epochs):
             min_after_dequeue=1000)
 
         return images, sparse_labels
-
 
 def inference(images):
     """Build the MNIST model.
@@ -246,7 +257,6 @@ def inference(images):
 
     return softmax_linear
 
-
 def _variable_with_weight_decay(name, shape, stddev, wd):
     """Helper to create an initialized Variable with weight decay.
 
@@ -273,7 +283,6 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
         tf.add_to_collection('losses', weight_decay)
     return var
 
-
 def _variable_on_cpu(name, shape, initializer):
     """Helper to create a Variable stored on CPU memory.
 
@@ -289,7 +298,6 @@ def _variable_on_cpu(name, shape, initializer):
         dtype = tf.float32
         var = tf.get_variable(name, shape, initializer=initializer, dtype=dtype)
     return var
-
 
 def _activation_summary(x):
     """Helper to create summaries for activations.
@@ -308,7 +316,6 @@ def _activation_summary(x):
     tf.summary.histogram(tensor_name + '/activations', x)
     tf.summary.scalar(tensor_name + '/sparsity',
                       tf.nn.zero_fraction(x))
-
 
 def loss(logits, labels):
     """Add L2Loss to all the trainable variables.
@@ -332,7 +339,6 @@ def loss(logits, labels):
     # The total loss is defined as the cross entropy loss plus all of the weight
     # decay terms (L2 loss).
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
-
 
 def tower_loss(scope):
     """Calculate the total loss on a single tower running the MNIST model.
@@ -371,7 +377,6 @@ def tower_loss(scope):
 
     return total_loss
 
-
 def average_gradients(tower_grads):
     """Calculate average gradient for each shared variable across all towers.
 
@@ -409,11 +414,10 @@ def average_gradients(tower_grads):
         average_grads.append(grad_and_var)
     return average_grads
 
-
 def train():
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        # Create a variable to count the number of train() calls. This equals the
-        # number of batches processed * FLAGS.num_gpus.
+        # Create a variable to count the number of train() calls. This equals
+        # the number of batches processed * FLAGS.num_gpus.
         global_step = tf.get_variable(
             'global_step', [],
             initializer=tf.constant_initializer(0), trainable=False)
@@ -427,9 +431,9 @@ def train():
                 with tf.device('/gpu:%d' % i):
                     with tf.name_scope(
                                     '%s_%d' % (TOWER_NAME, i)) as scope:
-                        # Calculate the loss for one tower of the CIFAR model. This function
-                        # constructs the entire CIFAR model but shares the variables across
-                        # all towers.
+                        # Calculate the loss for one tower of the CIFAR model.
+                        # This function constructs the entire CIFAR model but
+                        # shares the variables across all towers.
                         loss = tower_loss(scope)
 
                         # Reuse variables for the next tower.
@@ -439,7 +443,8 @@ def train():
                         summaries = tf.get_collection(tf.GraphKeys.SUMMARIES,
                                                       scope)
 
-                        # Calculate the gradients for the batch of data on this CIFAR tower.
+                        # Calculate the gradients for the batch of data on this
+                        # MNIST tower.
                         grads = opt.compute_gradients(loss)
 
                         # Keep track of the gradients across all towers.
@@ -510,26 +515,22 @@ def train():
 
                 # Print an overview fairly often.
                 if step % 100 == 0:
-                    print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value,
-                                                               duration))
-
-                if step % 10 == 0:
                     num_examples_per_step = FLAGS.batch_size * FLAGS.num_gpus
                     examples_per_sec = num_examples_per_step / duration
                     sec_per_batch = duration / FLAGS.num_gpus
-
                     format_str = (
                         '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
                         'sec/batch)')
                     print(format_str % (datetime.now(), step, loss_value,
                                         examples_per_sec, sec_per_batch))
-
-                if step % 100 == 0:
-                    summary_str = sess.run(summary_op)
-                    summary_writer.add_summary(summary_str, step)
+                if (FLAGS.tb_logging):
+                    if step % 100 == 0:
+                        summary_str = sess.run(summary_op)
+                        summary_writer.add_summary(summary_str, step)
 
                 # Save the model checkpoint periodically.
-                if step % 1000 == 0 or (step + 1) == FLAGS.max_steps:
+                if step % 1000 == 0 or (
+                    step + 1) == FLAGS.num_epochs * FLAGS.batch_size:
                     checkpoint_path = os.path.join(FLAGS.train_dir,
                                                    'model.ckpt')
                     saver.save(sess, checkpoint_path, global_step=step)
@@ -546,10 +547,69 @@ def train():
         coord.join(threads)
         sess.close()
 
+def evaluate():
+    """Eval MNIST for a number of steps."""
+    with tf.Graph().as_default() as g:
+        # Get images and labels for MNIST.
+        mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=False)
+        images = mnist.test.images
+        labels = mnist.test.labels
+
+        # Build a Graph that computes the logits predictions from the
+        # inference model.
+        logits = inference(images)
+
+        # Calculate predictions.
+        top_k_op = tf.nn.in_top_k(predictions=logits, targets=labels, k=1)
+
+        # Create saver to restore the learned variables for eval.
+        saver = tf.train.Saver()
+
+        with tf.Session() as sess:
+            ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+            if ckpt and ckpt.model_checkpoint_path:
+                # Restores from checkpoint
+                saver.restore(sess, ckpt.model_checkpoint_path)
+                # Assuming model_checkpoint_path looks something like:
+                #   /my-favorite-path/MNIST_train/model.ckpt-0,
+                # extract global_step from it.
+                global_step = \
+                ckpt.model_checkpoint_path.split('/')[-1].split('-')[
+                    -1]
+            else:
+                print('No checkpoint file found')
+                return
+
+            predictions = np.sum(sess.run([top_k_op]))
+
+            # Compute precision.
+            print('%s: precision = %.3f' % (datetime.now(), predictions))
 
 def main(argv=None):  # pylint: disable=unused-argument
+    start_time = time.time()
     train()
+    duration = time.time() - start_time
+    print('Total Duration (%.3f sec)' % (duration))
+    evaluate()
 
 
 if __name__ == '__main__':
     tf.app.run()
+
+# One GPU
+# Done training for 2 epochs, 2200 steps.
+# Total Duration (50.511 sec)
+# 2017-04-16 14:41:39.758205: precision = 8756.000
+
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (451.174 sec)
+# 2017-04-16 15:06:46.001862: precision = 9572.000
+
+# Two GPU
+# Done training for 1 epochs, 1100 steps.
+# Total Duration (36.525 sec)
+# 2017-04-16 14:44:44.520041: precision = 8385.000
+
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (588.606 sec)
+# 2017-04-16 14:58:13.208302: precision = 9521.000
