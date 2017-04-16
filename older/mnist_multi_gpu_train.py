@@ -16,7 +16,7 @@
 
 Accuracy:
 mnist_multi_gpu_train.py achieves ~xx% accuracy after 20K steps (xxx
-epochs of data) as judged by mnist_multi_gpu_eval.py.
+epochs of data) as judged by mnist_multi_gpu_batching_eval.py.
 
 Speed: With batch_size 50.
 
