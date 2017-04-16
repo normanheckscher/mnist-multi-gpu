@@ -367,7 +367,7 @@ def tower_loss(scope):
 
     # Attach a scalar summary to all individual losses and the total loss; do
     # the same for the averaged version of the losses.
-    if (FLAGS.tb_logging):
+    if FLAGS.tb_logging:
         for l in losses + [total_loss]:
             # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU
             # training session. This helps the clarity of presentation on
@@ -455,7 +455,7 @@ def train():
         grads = average_gradients(tower_grads)
 
         # Add histograms for gradients.
-        if (FLAGS.tb_logging):
+        if FLAGS.tb_logging:
             for grad, var in grads:
                 if grad is not None:
                     summaries.append(
@@ -464,7 +464,7 @@ def train():
         train_op = opt.apply_gradients(grads, global_step=global_step)
 
         # Add histograms for trainable variables.
-        if (FLAGS.tb_logging):
+        if FLAGS.tb_logging:
             for var in tf.trainable_variables():
                 summaries.append(tf.summary.histogram(var.op.name, var))
 
@@ -523,8 +523,8 @@ def train():
                         'sec/batch)')
                     print(format_str % (datetime.now(), step, loss_value,
                                         examples_per_sec, sec_per_batch))
-                if (FLAGS.tb_logging):
-                    if step % 100 == 0:
+                if FLAGS.tb_logging:
+                    if step % 10 == 0:
                         summary_str = sess.run(summary_op)
                         summary_writer.add_summary(summary_str, step)
 
@@ -549,7 +549,7 @@ def train():
 
 def evaluate():
     """Eval MNIST for a number of steps."""
-    with tf.Graph().as_default() as g:
+    with tf.Graph().as_default():
         # Get images and labels for MNIST.
         mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=False)
         images = mnist.test.images
@@ -570,12 +570,6 @@ def evaluate():
             if ckpt and ckpt.model_checkpoint_path:
                 # Restores from checkpoint
                 saver.restore(sess, ckpt.model_checkpoint_path)
-                # Assuming model_checkpoint_path looks something like:
-                #   /my-favorite-path/MNIST_train/model.ckpt-0,
-                # extract global_step from it.
-                global_step = \
-                ckpt.model_checkpoint_path.split('/')[-1].split('-')[
-                    -1]
             else:
                 print('No checkpoint file found')
                 return
@@ -589,7 +583,7 @@ def main(argv=None):  # pylint: disable=unused-argument
     start_time = time.time()
     train()
     duration = time.time() - start_time
-    print('Total Duration (%.3f sec)' % (duration))
+    print('Total Duration (%.3f sec)' % duration)
     evaluate()
 
 
