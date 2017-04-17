@@ -427,7 +427,7 @@ def train():
 
                         # Calculate the gradients for the batch of data on this
                         # MNIST tower.
-                        grads = opt.compute_gradients(loss)
+                        grads = opt.compute_gradients(loss, gate_gradients=0)
 
                         # Keep track of the gradients across all towers.
                         tower_grads.append(grads)
