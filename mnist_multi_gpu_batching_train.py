@@ -25,24 +25,6 @@ System        | Step Time (sec/batch)  | Accuracy
 1 GTX 1080    | 0.018-0.022            | ~xx.xx% at 20K steps  (x hours)
 2 GTX 1080    | 0.012-0.015            | ~xx.xx% at 20K steps  (x hours)
 
-# One GPU
-# Done training for 2 epochs, 2200 steps.
-# Total Duration (50.511 sec)
-# 2017-04-16 14:41:39.758205: precision = 8756.000
-
-# Done training for 20 epochs, 22000 steps.
-# Total Duration (451.174 sec)
-# 2017-04-16 15:06:46.001862: precision = 9572.000
-
-# Two GPU
-# Done training for 1 epochs, 1100 steps.
-# Total Duration (36.525 sec)
-# 2017-04-16 14:44:44.520041: precision = 8385.000
-
-# Done training for 20 epochs, 22000 steps.
-# Total Duration (588.606 sec)
-# 2017-04-16 14:58:13.208302: precision = 9521.000
-
 Usage:
 Please see the TensorFlow website for how to download the MNIST
 data set, compile and train models.
@@ -586,24 +568,5 @@ def main(argv=None):  # pylint: disable=unused-argument
     print('Total Duration (%.3f sec)' % duration)
     evaluate()
 
-
 if __name__ == '__main__':
     tf.app.run()
-
-# One GPU
-# Done training for 2 epochs, 2200 steps.
-# Total Duration (50.511 sec)
-# 2017-04-16 14:41:39.758205: precision = 8756.000
-
-# Done training for 20 epochs, 22000 steps.
-# Total Duration (451.174 sec)
-# 2017-04-16 15:06:46.001862: precision = 9572.000
-
-# Two GPU
-# Done training for 1 epochs, 1100 steps.
-# Total Duration (36.525 sec)
-# 2017-04-16 14:44:44.520041: precision = 8385.000
-
-# Done training for 20 epochs, 22000 steps.
-# Total Duration (588.606 sec)
-# 2017-04-16 14:58:13.208302: precision = 9521.000
