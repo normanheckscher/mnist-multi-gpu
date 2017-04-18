@@ -54,9 +54,19 @@ VALIDATION_FILE = 'validation.tfrecords'
 TOWER_NAME = 'tower'
 IMAGE_PIXELS = 784
 
+# Constants describing the training process.
+MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
+NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
+LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
+INITIAL_LEARNING_RATE = 0.1       # Initial learning rate.
+
+# Global constants describing the MNIST data set.
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
+
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_integer('batch_size', 50,
+tf.app.flags.DEFINE_integer('batch_size', 64,
                             """Number of images to process in a batch.""")
 tf.app.flags.DEFINE_string('data_dir', '/home/norman/MNIST_data',
                            """Path to the MNIST data directory.""")
@@ -69,8 +79,73 @@ tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 tf.app.flags.DEFINE_boolean('tb_logging', False,
                             """Whether to log to Tensorboard.""")
-tf.app.flags.DEFINE_integer('num_epochs', 2,
+tf.app.flags.DEFINE_integer('num_epochs', 10,
                             """Number of epochs to run trainer.""")
+# 17/4/17
+# 1 gpu
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (474.817 sec)
+# 2017-04-17 15:24:51.190879: precision = 9743.000v
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (497.690 sec)
+# 2017-04-17 15:35:10.070366: precision = 9305.000
+# 2 gpu
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (687.583 sec)
+# 2017-04-17 15:14:28.793936: precision = 9472.000
+# Done training for 20 epochs, 22000 steps.
+# Total Duration (672.720 sec)
+# 2017-04-17 15:52:16.096935: precision = 9672.000
+# 17/4/17
+
+# 18/4/17
+# 2 GPU
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (339.430 sec)
+# 2017-04-18 10:50:53.269983: precision = 9677.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (335.611 sec)
+# 2017-04-18 11:14:26.685982: precision = 9674.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (349.731 sec)
+# 2017-04-18 12:48:15.148828: precision = 9267.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (350.593 sec)
+# 2017-04-18 13:14:51.974247: precision = 9270.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (361.926 sec)
+# 2017-04-18 13:58:02.775474: precision = 9507.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (346.119 sec)
+# 2017-04-18 14:46:51.579685: precision = 9471.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (334.561 sec)
+# 2017-04-18 14:58:06.942195: precision = 9781.000
+
+# 1 GPU
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (238.033 sec)
+# 2017-04-18 11:02:06.403359: precision = 9679.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (256.169 sec)
+# 2017-04-18 11:20:54.328206: precision = 9362.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (257.144 sec)
+# 2017-04-18 12:30:53.954074: precision = 8989.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (250.306 sec)
+# 2017-04-18 12:40:26.649277: precision = 9512.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (257.795 sec)
+# 2017-04-18 13:22:48.300705: precision = 9692.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (254.077 sec)
+# 2017-04-18 13:35:26.700627: precision = 9391.000
+# Done training for 10 epochs, 8593 steps.
+# Total Duration (253.215 sec)
+# 2017-04-18 13:41:46.708623: precision = 9734.000
+
+
 
 def read_and_decode(filename_queue):
     reader = tf.TFRecordReader()
@@ -405,7 +480,19 @@ def train():
             'global_step', [],
             initializer=tf.constant_initializer(0), trainable=False)
 
-        opt = tf.train.AdamOptimizer(1e-4)
+        # Calculate the learning rate schedule.
+        num_batches_per_epoch = (NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
+                                 FLAGS.batch_size)
+        decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
+
+        # Decay the learning rate exponentially based on the number of steps.
+        lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
+                                        global_step,
+                                        decay_steps,
+                                        LEARNING_RATE_DECAY_FACTOR,
+                                        staircase=True)
+
+        opt = tf.train.MomentumOptimizer(lr,0.9,use_nesterov=True,use_locking=True)
 
         # Calculate the gradients for each model tower.
         tower_grads = []
@@ -443,6 +530,8 @@ def train():
                 if grad is not None:
                     summaries.append(
                         tf.summary.histogram(var.op.name + '/gradients', grad))
+            # Add a summary to track the learning rate.
+            summaries.append(tf.summary.scalar('learning_rate', lr))
 
         train_op = opt.apply_gradients(grads, global_step=global_step)
 
