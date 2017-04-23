@@ -3,9 +3,9 @@ A ConvNet for MNIST digit classification.
 
 Multi GPU example with TensorFlow utilising local tower architecture for each GPU.
 
-2 different examples. Utilise batching and direct feed.
+Several different examples. Utilise batching and direct feed.
 
-Batching achieves 0.8% error after approximately seven epochs.
+Keras performs the best. It utilises the MultiGPU code from: https://github.com/kuza55/keras-extras
 
 ## Training a Model Using Multiple GPU Cards
 
@@ -71,9 +71,42 @@ Layer Name | Description
 
 Here is a graph generated from TensorBoard describing the inference operation:
 
-<div style="width:15%; margin:auto; margin-bottom:10px; margin-top:20px;">
+<centre><div style="width:15%; margin:auto; margin-bottom:10px; margin-top:20px;">
   <img style="width:100%" src="./images/mnist_graph.png">
-</div>
+</div></Centre>
+
+
+# Evolve a neural network with a genetic algorithm
+
+Taken from https://github.com/harvitronix/neural-network-genetic-algorithm
+
+`train.py`
+`optimizer.py`
+`network.py`
+`main.py`
+`brute.py`
+
+This is an example of how we can use a genetic algorithm in an attempt to find the optimal network parameters for classification tasks.
+
+It's currently limited to only MLPs (ie. fully connected networks) and uses the Keras library to build, train and validate.
+
+On the easy MNIST dataset, we are able to quickly find a network that reaches > 98% accuracy. On the more challenging CIFAR10 dataset, we get to 56% after 10 generations (with population 20).
+
+For more, see this blog post:
+https://medium.com/@harvitronix/lets-evolve-a-neural-network-with-a-genetic-algorithm-code-included-8809bece164
+
+## To run
+
+To run the brute force algorithm:
+
+```python3 brute.py```
+
+To run the genetic algorithm:
+
+```python3 main.py```
+
+You can set your network parameter choices by editing each of those files first. You can also choose whether to use the MNIST or CIFAR10 datasets. Simply set `dataset` to either `mnist` or `cifar10`.
+
 
 # Contribution
 Your comments (issues) and PRs are always welcome.
